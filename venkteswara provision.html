@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Provision Store — POS (Browser)</title>
+  <style>
+    :root{--accent:#0ea5a4;--muted:#666}
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;margin:0;background:#f7faf9;color:#0f172a}
+    header{background:linear-gradient(90deg,#06b6d4,#3b82f6);color:white;padding:16px 20px;display:flex;align-items:center;justify-content:space-between}
+    header h1{margin:0;font-size:18px}
+    .container{display:grid;grid-template-columns:1fr 360px;gap:18px;padding:18px}
+    .menu{background:white;padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+    .card{border:1px solid #eef2f7;border-radius:10px;padding:10px;cursor:pointer;text-align:center;background:linear-gradient(180deg,#fff,#fbfdff)}
+    .card img{width:100%;height:90px;object-fit:contain}
+    .card h3{margin:8px 0 6px;font-size:14px}
+    .card p{margin:0;color:var(--muted);font-size:13px}
+    .cart{background:white;padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06);display:flex;flex-direction:column;height:72vh}
+    .cart h2{margin:0 0 8px}
+    .items{flex:1;overflow:auto;padding-right:6px}
+    .cart-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px dashed #eef2f7}
+    .cart-row img{width:50px;height:50px;object-fit:cover;border-radius:6px}
+    .cart-row .meta{flex:1}
+    .cart-row .meta b{display:block}
+    .qty{display:flex;align-items:center;gap:6px}
+    .qty button{padding:4px 8px;border-radius:6px;border:1px solid #e6eef6;background:#fff;cursor:pointer}
+    .summary{padding-top:10px;border-top:1px solid #f0f4f8}
+    .summary div{display:flex;justify-content:space-between;padding:6px 0}
+    .actions{display:flex;gap:8px;margin-top:10px}
+    .btn{padding:8px 12px;border-radius:8px;border:none;cursor:pointer}
+    .btn.primary{background:var(--accent);color:white}
+    .btn.ghost{background:transparent;border:1px solid #cfe7e6}
+    footer{padding:14px;text-align:center;color:var(--muted);font-size:13px}
+    /* modals */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,0.45);display:none;align-items:center;justify-content:center}
+    .modal{background:white;padding:16px;border-radius:12px;width:560px;max-width:95%}
+    .flex{display:flex;gap:8px;align-items:center}
+    input,select,textarea{padding:8px;border-radius:8px;border:1px solid #e6eef6;width:100%}
+    .small{font-size:13px;color:var(--muted)}
+    .report-table{width:100%;border-collapse:collapse}
+    .report-table th,.report-table td{padding:6px;border-bottom:1px solid #f0f4f8;text-align:left}
+    .manage-list{max-height:300px;overflow:auto}
+    @media(max-width:900px){.container{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Provision Store — Simple POS (Browser)</h1>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn ghost" id="openManage">Manage Menu</button>
+      <button class="btn ghost" id="openReport">Monthly Sales Report</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="menu">
+      <h2 style="margin:0 0 10px">Menu</h2>
+      <div class="menu-grid" id="menuGrid"></div>
+    </section>
+
+    <aside class="cart">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Cart</h2>
+        <div class="small">Items: <span id="cartCount">0</span></div>
+      </div>
+      <div class="items" id="cartItems"></div>
+      <div class="summary">
+        <div><span>Subtotal</span><b id="subtotal">₹0.00</b></div>
+        <div><span>GST (0%)</span><b id="tax">₹0.00</b></div>
+        <div style="font-size:18px"><span>Total</span><b id="total">₹0.00</b></div>
+        <div class="actions">
+          <button class="btn primary" id="payNow">Pay Now</button>
+          <button class="btn" id="printBill">Print Bill</button>
+          <button class="btn" id="clearCart">Clear Cart</button>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>Built for demo — works fully in your browser. Data (menu & sales) stored in localStorage.</footer>
+
+  <!-- Modals -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="modalContent"></div>
+  </div>
+
+  <!-- QR library (cdn) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    // Default menu (will be saved to localStorage)
+    const defaultMenu = [
+      {id:'puff',name:'Puff',price:15,cat:'Puff',img:svgData('🥐')},
+      {id:'bun',name:'Bun',price:10,cat:'Bun',img:svgData('🍞')},
+      {id:'cake',name:'Cake',price:200,cat:'Cake',img:svgData('🍰')},
+      {id:'sweet',name:'Sweet',price:80,cat:'Sweet',img:svgData('🍮')},
+      {id:'biscuit',name:'Biscuit',price:20,cat:'Biscuit',img:svgData('🍪')},
+      {id:'sugar',name:'Sugar (1kg)',price:45,cat:'Sugar',img:svgData('🧂')},
+      {id:'dhal',name:'Dhal (1kg)',price:120,cat:'Dhal',img:svgData('🥣')}
+    ];
+
+    // Helpers
+    function svgData(emoji){
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='300'><rect rx='18' width='100%' height='100%' fill='%23ffffff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='120'>${emoji}</text></svg>`;
+      return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+    }
+
+    // Load or init menu
+    let menu = JSON.parse(localStorage.getItem('menu_v1')) || defaultMenu;
+    localStorage.setItem('menu_v1', JSON.stringify(menu));
+
+    // Cart state
+    let cart = JSON.parse(sessionStorage.getItem('cart_v1')||'{}');
+
+    // Sales storage (array of sale objects)
+    let sales = JSON.parse(localStorage.getItem('sales_v1')||'[]');
+
+    // UI refs
+    const menuGrid = document.getElementById('menuGrid');
+    const cartItems = document.getElementById('cartItems');
+    const cartCount = document.getElementById('cartCount');
+    const subtotalEl = document.getElementById('subtotal');
+    const taxEl = document.getElementById('tax');
+    const totalEl = document.getElementById('total');
+    const payNowBtn = document.getElementById('payNow');
+    const printBillBtn = document.getElementById('printBill');
+    const clearCartBtn = document.getElementById('clearCart');
+    const openManage = document.getElementById('openManage');
+    const openReport = document.getElementById('openReport');
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    const modalContent = document.getElementById('modalContent');
+
+    // Render menu
+    function renderMenu(){
+      menuGrid.innerHTML = '';
+      menu.forEach(item=>{
+        const el = document.createElement('div'); el.className='card'; el.dataset.id=item.id;
+        el.innerHTML = `<img src='${item.img}' alt='${item.name}'/><h3>${item.name}</h3><p>₹${item.price.toFixed(2)}</p>`;
+        el.onclick = ()=> addToCart(item.id);
+        menuGrid.appendChild(el);
+      });
+    }
+
+    function saveMenu(){ localStorage.setItem('menu_v1', JSON.stringify(menu)); renderMenu(); }
+
+    // Cart functions
+    function addToCart(id){
+      const item = menu.find(m=>m.id===id);
+      if(!item) return;
+      if(!cart[id]) cart[id] = {...item, qty:0};
+      cart[id].qty += 1;
+      sessionStorage.setItem('cart_v1', JSON.stringify(cart));
+      renderCart();
+    }
+
+    function changeQty(id, delta){
+      if(!cart[id]) return;
+      cart[id].qty += delta;
+      if(cart[id].qty<=0) delete cart[id];
+      sessionStorage.setItem('cart_v1', JSON.stringify(cart));
+      renderCart();
+    }
+
+    function clearCart(){ cart = {}; sessionStorage.removeItem('cart_v1'); renderCart(); }
+
+    function renderCart(){
+      cartItems.innerHTML = '';
+      let subtotal=0, count=0;
+      Object.values(cart).forEach(it=>{
+        const row = document.createElement('div'); row.className='cart-row';
+        row.innerHTML = `<img src='${it.img}'/><div class='meta'><b>${it.name}</b><div class='small'>₹${it.price.toFixed(2)} × ${it.qty}</div></div>`;
+        const controls = document.createElement('div'); controls.className='qty';
+        const plus = document.createElement('button'); plus.textContent='+'; plus.onclick=()=>changeQty(it.id,1);
+        const minus = document.createElement('button'); minus.textContent='−'; minus.onclick=()=>changeQty(it.id,-1);
+        controls.appendChild(minus); controls.appendChild(plus);
+        row.appendChild(controls);
+        cartItems.appendChild(row);
+        subtotal += it.price * it.qty; count += it.qty;
+      });
+      cartCount.textContent = count;
+      subtotalEl.textContent = `₹${subtotal.toFixed(2)}`;
+      taxEl.textContent = `₹0.00`;
+      totalEl.textContent = `₹${subtotal.toFixed(2)}`;
+    }
+
+    // Payment flow: generate QR and then record sale
+    payNowBtn.addEventListener('click', ()=>{
+      const items = Object.values(cart);
+      if(items.length===0) return alert('Cart is empty');
+      const total = Number(Object.values(cart).reduce((s,i)=>s+i.price*i.qty,0).toFixed(2));
+      openModal(`<h3>Pay Now — ₹${total.toFixed(2)}</h3><div id='qrcode' style='margin:12px auto;width:200px;height:200px;'></div><p class='small'>Scan this QR to pay (demo). After successful payment click <b>Confirm Payment</b>.</p><div style='display:flex;gap:8px;justify-content:flex-end;margin-top:8px'><button id='cancelPay' class='btn'>Cancel</button><button id='confirmPay' class='btn primary'>Confirm Payment</button></div>`);
+      // generate dummy payload (could be UPI/anything)
+      setTimeout(()=>{
+        const qrHolder = document.getElementById('qrcode');
+        qrHolder.innerHTML='';
+        new QRCode(qrHolder, {text:`ProvisionStore|amount:${total.toFixed(2)}|ts:${Date.now()}`,width:200,height:200});
+        document.getElementById('cancelPay').onclick = closeModal;
+        document.getElementById('confirmPay').onclick = ()=>{
+          // record sale
+          const sale = {id:'sale_'+Date.now(),ts:new Date().toISOString(),items:items.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty})),total};
+          sales = JSON.parse(localStorage.getItem('sales_v1')||'[]'); sales.push(sale); localStorage.setItem('sales_v1', JSON.stringify(sales));
+          alert('Payment recorded — Thank you!');
+          clearCart(); closeModal();
+        }
+      },100);
+    });
+
+    // Print bill
+    printBillBtn.addEventListener('click', ()=>{
+      const items = Object.values(cart);
+      if(items.length===0) return alert('Cart is empty');
+      const total = Number(Object.values(cart).reduce((s,i)=>s+i.price*i.qty,0).toFixed(2));
+      const billHtml = `
+        <div style='font-family:inherit;padding:20px'>
+          <h2>Provision Store</h2>
+          <div>${new Date().toLocaleString()}</div>
+          <hr/>
+          ${items.map(it=>`<div style='display:flex;justify-content:space-between;padding:6px 0'><div>${it.name} x ${it.qty}</div><div>₹${(it.price*it.qty).toFixed(2)}</div></div>`).join('')}
+          <hr/>
+          <div style='display:flex;justify-content:space-between;font-weight:bold'><div>Total</div><div>₹${total.toFixed(2)}</div></div>
+          <p class='small'>Thanks for shopping!</p>
+        </div>`;
+      const w = window.open('','PRINT','height=600,width=400');
+      w.document.write('<html><head><title>Bill</title></head><body>'+billHtml+'</body></html>');
+      w.document.close(); w.focus(); w.print(); w.close();
+      // optionally record sale on print
+      const sale = {id:'sale_'+Date.now(),ts:new Date().toISOString(),items:items.map(i=>({id:i.id,name:i.name,price:i.price,qty:i.qty})),total};
+      sales = JSON.parse(localStorage.getItem('sales_v1')||'[]'); sales.push(sale); localStorage.setItem('sales_v1', JSON.stringify(sales));
+      clearCart();
+    });
+
+    clearCartBtn.addEventListener('click', ()=>{ if(confirm('Clear cart?')) clearCart(); });
+
+    // Manage menu modal
+    openManage.addEventListener('click', ()=>{
+      renderManage();
+      openModal(modalContent.innerHTML);
+    });
+
+    function renderManage(){
+      modalContent.innerHTML = `<h3>Manage Menu</h3>
+        <div style='display:flex;gap:8px;margin-bottom:10px'><input id='newName' placeholder='Name'/><input id='newPrice' placeholder='Price' type='number'/><button id='addNew' class='btn primary'>Add</button></div>
+        <div class='manage-list'>${menu.map(m=>`<div style='display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #f6fbff'><img src='${m.img}' style='width:46px;height:46px;border-radius:6px'/><div style='flex:1'><b>${m.name}</b><div class='small'>₹${m.price.toFixed(2)}</div></div><div style='display:flex;gap:6px'><button class='btn' data-edit='${m.id}'>Edit</button><button class='btn' data-del='${m.id}'>Delete</button></div></div>`).join('')}</div>
+        <div style='display:flex;justify-content:flex-end;margin-top:8px'><button id='closeManage' class='btn'>Close</button></div>`;
+      // attach handlers after render
+      setTimeout(()=>{
+        document.getElementById('addNew').onclick = ()=>{
+          const name = document.getElementById('newName').value.trim();
+          const price = parseFloat(document.getElementById('newPrice').value);
+          if(!name||isNaN(price)) return alert('Enter valid name and price');
+          const id = name.toLowerCase().replace(/\s+/g,'_') + '_' + Date.now();
+          const m = {id,name,price,cat:name,img:svgData(name.split(' ')[0]||'🍽')};
+          menu.push(m); saveMenu(); renderManage();
+        };
+        document.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=()=>{
+          const id = btn.dataset.del; if(!confirm('Delete this item?')) return; menu = menu.filter(x=>x.id!==id); saveMenu(); renderManage();
+        } );
+        document.querySelectorAll('[data-edit]').forEach(btn=>btn.onclick=()=>{
+          const id = btn.dataset.edit; const m = menu.find(x=>x.id===id);
+          const newName = prompt('Name', m.name); if(newName===null) return;
+          const newPrice = prompt('Price', m.price); if(newPrice===null) return;
+          m.name = newName; m.price = parseFloat(newPrice)||m.price; saveMenu(); renderManage();
+        } );
+        document.getElementById('closeManage').onclick = closeModal;
+      },50);
+    }
+
+    // Report modal
+    openReport.addEventListener('click', ()=>{
+      const allSales = JSON.parse(localStorage.getItem('sales_v1')||'[]');
+      // group by month
+      const months = {};
+      allSales.forEach(s=>{
+        const d = new Date(s.ts); const key = `${d.getFullYear()}-${('0'+(d.getMonth()+1)).slice(-2)}`;
+        if(!months[key]) months[key]={total:0,count:0}; months[key].total += s.total; months[key].count += 1;
+      });
+      const rows = Object.keys(months).sort().reverse().map(k=>`<tr><td>${k}</td><td>₹${months[k].total.toFixed(2)}</td><td>${months[k].count}</td></tr>`).join('');
+      openModal(`<h3>Monthly Sales Report</h3><table class='report-table'><thead><tr><th>Month</th><th>Total Sales</th><th>Transactions</th></tr></thead><tbody>${rows||'<tr><td colspan="3">No sales yet</td></tr>'}</tbody></table><div style='display:flex;justify-content:flex-end;margin-top:8px'><button id='exportSales' class='btn'>Export CSV</button><button id='closeReport' class='btn'>Close</button></div>`);
+      setTimeout(()=>{
+        document.getElementById('exportSales').onclick = ()=> exportCSV();
+        document.getElementById('closeReport').onclick = closeModal;
+      },50);
+    });
+
+    function exportCSV(){
+      const allSales = JSON.parse(localStorage.getItem('sales_v1')||'[]');
+      if(allSales.length===0){ alert('No sales'); return; }
+      let csv = 'sale_id,timestamp,item_id,item_name,price,qty,total\n';
+      allSales.forEach(s=>{
+        s.items.forEach(it=>{
+          csv += `${s.id},${s.ts},${it.id},"${it.name}",${it.price},${it.qty},${s.total}\n`;
+        });
+      });
+      const blob = new Blob([csv],{type:'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'sales.csv'; a.click(); URL.revokeObjectURL(url);
+    }
+
+    // Modal helpers
+    function openModal(html){ modalContent.innerHTML = html; modalBackdrop.style.display='flex'; }
+    function closeModal(){ modalBackdrop.style.display='none'; modalContent.innerHTML=''; }
+    modalBackdrop.addEventListener('click', (e)=>{ if(e.target===modalBackdrop) closeModal(); });
+
+    // init
+    renderMenu(); renderCart();
+
+  </script>
+</body>
+</html>
+
